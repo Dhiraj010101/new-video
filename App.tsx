@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { VoiceName, Mood, ScriptAnalysis, MusicPreset, ViralAnalysis, ChatMessage } from './types';
 import { VOICE_OPTIONS, MOOD_COLORS, LANGUAGE_OPTIONS, MUSIC_PRESET_OPTIONS, PlayIcon, PauseIcon, MagicIcon, SpeakerIcon, DownloadIcon } from './constants';
@@ -104,16 +103,19 @@ export default function App() {
         setIsAnalyzing(false);
 
         setIsGenerating(true);
-        // Step 1: Voice Generation
-        const audioBase64 = await generateSpeech(scriptToProcess, selectedVoice);
+        // Step 1: Voice Generation with EMOTIONAL INSTRUCTIONS from analysis
+        const audioBase64 = await generateSpeech(
+          scriptToProcess, 
+          selectedVoice, 
+          analysisResult.voiceInstruction 
+        );
         const buffer = await audioService.decodeAudio(audioBase64);
         
-        // Step 2: Voice Analysis (Subtitles) - WITH RESILIENT FALLBACK
+        // Step 2: Voice Analysis (Subtitles)
         setIsTranscribing(true);
         const preciseTimings = await transcribeGeneratedAudio(audioBase64);
         setIsTranscribing(false);
 
-        // Fallback to heuristic calculation if transcription fails
         const finalTimings = preciseTimings || calculateWordTimings(scriptToProcess, buffer.duration);
 
         // Step 3: Visuals
@@ -167,7 +169,7 @@ export default function App() {
         const mixedAudio = await audioService.getMixBuffer(audioBuffer, mood as any, reelDuration, voiceVol, musicVol, 1.0, null, voiceSpeed);
         const blob = await exportVideo(generatedImages, mixedAudio, wordTimings, videoFormat, reelDuration, p => setRenderProgress(Math.round(p)), showSubtitles);
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = `VoxScript_Video.webm`; a.click();
+        const a = document.createElement('a'); a.href = url; a.download = `VoxScript_Studio_Export.webm`; a.click();
     } catch (e) {
         console.error("Video export failed", e);
     } finally {
@@ -209,10 +211,22 @@ export default function App() {
                 <textarea className="flex-1 bg-transparent p-6 text-base leading-relaxed resize-none focus:outline-none placeholder-gray-700" value={script} onChange={(e) => setScript(e.target.value)} placeholder="Type your narrative here..." />
               </div>
 
+              {analysis && (
+                <div className="bg-brand-900/10 border border-brand-500/30 rounded-xl p-3 flex flex-col gap-2">
+                   <div className="flex items-center justify-between">
+                     <span className="text-[10px] font-bold uppercase text-brand-400">Emotion Detected</span>
+                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold text-white ${MOOD_COLORS[analysis.mood]}`}>{analysis.mood}</span>
+                   </div>
+                   <div className="text-[11px] text-brand-200 italic line-clamp-2">
+                     "{analysis.voiceInstruction}"
+                   </div>
+                </div>
+              )}
+
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
                  <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-bold text-gray-500 uppercase">Visual Theme</label>
-                    <input className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:ring-1 focus:ring-brand-500" value={visualStyle} onChange={(e) => setVisualStyle(e.target.value)} placeholder="Cinematic, Anime, Realistic..." />
+                    <input className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:ring-1 focus:ring-brand-500" value={visualStyle} onChange={(e) => setVisualStyle(e.target.value)} placeholder="Cinematic, Magical Anime, Divine..." />
                  </div>
                  <div className="grid grid-cols-2 gap-4">
                     <select value={selectedVoice} onChange={(e) => setSelectedVoice(e.target.value as VoiceName)} className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-3 text-sm outline-none">

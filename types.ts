@@ -14,7 +14,8 @@ export enum Mood {
   Tense = 'Tense',
   Excited = 'Excited',
   Professional = 'Professional',
-  Mysterious = 'Mysterious'
+  Mysterious = 'Mysterious',
+  Soulful = 'Soulful'
 }
 
 export enum MusicPreset {
@@ -30,6 +31,7 @@ export interface ScriptAnalysis {
   summary: string;
   suggestedTempo: number; // 0.8 to 1.2
   visualPrompts: string[];
+  voiceInstruction: string; // New: Specific instruction for the TTS model
 }
 
 export interface ViralAnalysis {

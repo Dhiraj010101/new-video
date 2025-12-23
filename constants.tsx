@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { VoiceName, Mood, MusicPreset } from './types';
 
@@ -32,6 +33,7 @@ export const MUSIC_PRESET_OPTIONS = [
   { id: MusicPreset.DesiBeats, label: '🥁 Desi Beats (Hindi)' },
 ];
 
+// Fix: Add missing Mood.Soulful mapping to satisfy Record<Mood, string>
 export const MOOD_COLORS: Record<Mood, string> = {
   [Mood.Neutral]: 'bg-gray-500',
   [Mood.Happy]: 'bg-yellow-500',
@@ -40,6 +42,7 @@ export const MOOD_COLORS: Record<Mood, string> = {
   [Mood.Excited]: 'bg-orange-500',
   [Mood.Professional]: 'bg-brand-500',
   [Mood.Mysterious]: 'bg-purple-500',
+  [Mood.Soulful]: 'bg-indigo-500',
 };
 
 // Icons
