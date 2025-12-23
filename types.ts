@@ -45,16 +45,27 @@ export interface GeneratedAudio {
   duration: number;
 }
 
-export interface ChatMessage {
-  role: 'user' | 'model';
-  text: string;
-  sources?: GroundingSource[];
-  isSearching?: boolean;
+export interface WordTiming {
+  word: string;
+  start: number;
+  end: number;
+  index: number;
 }
 
 export interface GroundingSource {
   uri: string;
   title: string;
+}
+
+export interface ChatMessage {
+  role: 'user' | 'model';
+  text: string;
+  sources?: GroundingSource[];
+  suggestedActions?: {
+    type: 'script' | 'style';
+    value: string;
+    label: string;
+  }[];
 }
 
 export interface AudioMixerState {
