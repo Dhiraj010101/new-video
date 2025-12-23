@@ -11,11 +11,12 @@ import ReelPlayer from './components/ReelPlayer';
 type BackgroundMode = 'Auto' | 'Custom' | Mood | MusicPreset;
 type VideoFormat = '9:16' | '16:9';
 
+const CUSTOM_CINEMATIC_TONE = "Narrate with a breathless, cinematic grandeur, infusing every word with awe and a sense of magical discovery, as if unveiling a legendary artifact.";
+
 export default function App() {
   const [script, setScript] = useState<string>("In a world where artificial intelligence meets human creativity, VoxScript Studio emerges as the ultimate tool for visual storytellers. Whether you're crafting a viral reel or a cinematic short, the power of professional voice-over and stunning AI visuals is now at your fingertips.");
   const [videoFormat, setVideoFormat] = useState<VideoFormat>('9:16');
   const [selectedVoice, setSelectedVoice] = useState<VoiceName>(VoiceName.Puck);
-  const [targetLanguage, setTargetLanguage] = useState<string>('en');
   const [visualStyle, setVisualStyle] = useState<string>("");
   
   const [chatMode, setChatMode] = useState<'chat' | 'search'>('chat');
@@ -29,9 +30,12 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const [isTranslating, setIsTranslating] = useState(false);
   const [isRenderingVideo, setIsRenderingVideo] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
+
+  // Tone Confirmation State
+  const [showTonePrompt, setShowTonePrompt] = useState(false);
+  const [pendingAnalysis, setPendingAnalysis] = useState<ScriptAnalysis | null>(null);
 
   const [analysis, setAnalysis] = useState<ScriptAnalysis | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -72,9 +76,43 @@ export default function App() {
     }
   };
 
-  const handleApplyAction = (type: 'script' | 'style', value: string) => {
-    if (type === 'script') setScript(value);
-    if (type === 'style') setVisualStyle(value);
+  const startGenerationFlow = (analysisResult: ScriptAnalysis, useGlobalTone: boolean) => {
+    setShowTonePrompt(false);
+    setAnalysis(analysisResult);
+    
+    const finalVoiceInstruction = useGlobalTone ? CUSTOM_CINEMATIC_TONE : analysisResult.voiceInstruction;
+
+    (async () => {
+      setIsGenerating(true);
+      try {
+        const audioBase64 = await generateSpeech(
+          script, 
+          selectedVoice, 
+          finalVoiceInstruction 
+        );
+        const buffer = await audioService.decodeAudio(audioBase64);
+        
+        setIsTranscribing(true);
+        const preciseTimings = await transcribeGeneratedAudio(audioBase64);
+        setIsTranscribing(false);
+
+        const finalTimings = preciseTimings || calculateWordTimings(script, buffer.duration);
+
+        const imagePromises = analysisResult.visualPrompts.map(p => generateImage(p, videoFormat));
+        const images = await Promise.all(imagePromises);
+        
+        setAudioBuffer(buffer);
+        setReelDuration(buffer.duration); 
+        setGeneratedImages(images.filter((img): img is string => img !== null));
+        setWordTimings(finalTimings);
+
+      } catch (err: any) {
+         console.warn("Generation encountered an error.", err);
+      } finally {
+        setIsGenerating(false);
+        setIsTranscribing(false);
+      }
+    })();
   };
 
   const handleAnalyzeAndGenerate = () => {
@@ -89,47 +127,17 @@ export default function App() {
       audioService.stopAll();
 
       try {
-        let scriptToProcess = script;
-        if (targetLanguage !== 'en') {
-          setIsTranslating(true);
-          scriptToProcess = await translateScript(script, targetLanguage);
-          setIsTranslating(false);
-        }
-
         setIsAnalyzing(true);
-        const analysisResult = await analyzeScript(scriptToProcess, videoFormat, visualStyle);
-        setAnalysis(analysisResult);
+        const analysisResult = await analyzeScript(script, videoFormat, visualStyle);
+        setPendingAnalysis(analysisResult);
         setIsAnalyzing(false);
-
-        setIsGenerating(true);
-        const audioBase64 = await generateSpeech(
-          scriptToProcess, 
-          selectedVoice, 
-          analysisResult.voiceInstruction 
-        );
-        const buffer = await audioService.decodeAudio(audioBase64);
         
-        setIsTranscribing(true);
-        const preciseTimings = await transcribeGeneratedAudio(audioBase64);
-        setIsTranscribing(false);
-
-        const finalTimings = preciseTimings || calculateWordTimings(scriptToProcess, buffer.duration);
-
-        const imagePromises = analysisResult.visualPrompts.map(p => generateImage(p, videoFormat));
-        const images = await Promise.all(imagePromises);
-        
-        setAudioBuffer(buffer);
-        setReelDuration(buffer.duration); 
-        setGeneratedImages(images.filter((img): img is string => img !== null));
-        setWordTimings(finalTimings);
+        // INTERRUPT: Ask user if they want to use the cinematic tone
+        setShowTonePrompt(true);
 
       } catch (err: any) {
-         console.warn("Generation encountered an error.", err);
-      } finally {
-        setIsAnalyzing(false);
-        setIsGenerating(false);
-        setIsTranslating(false);
-        setIsTranscribing(false);
+         console.warn("Analysis failed.", err);
+         setIsAnalyzing(false);
       }
     })();
   };
@@ -152,7 +160,6 @@ export default function App() {
     setRenderProgress(0);
     try {
         const mixedAudio = await audioService.getMixBuffer(audioBuffer, analysis.mood, reelDuration, voiceVol, 0, 1.0, null, voiceSpeed);
-        // Fix: Removed the 8th argument 'analysis' from exportVideo call to match the function signature (expected 6-7 parameters).
         const blob = await exportVideo(generatedImages, mixedAudio, wordTimings, videoFormat, reelDuration, p => setRenderProgress(Math.round(p)), showSubtitles);
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a'); a.href = url; a.download = `VoxScript_Clean_Export.webm`; a.click();
@@ -172,6 +179,44 @@ export default function App() {
             <div className="w-full max-w-md bg-gray-800 rounded-full h-4 overflow-hidden"><div className="h-full bg-brand-500 transition-all" style={{ width: `${renderProgress}%` }} /></div>
             <span className="mt-2 text-brand-400">{renderProgress}% Complete</span>
         </div>
+      )}
+
+      {/* Tone Confirmation Dialog */}
+      {showTonePrompt && pendingAnalysis && (
+          <div className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-sm flex items-center justify-center p-6">
+              <div className="bg-gray-900 border border-gray-800 rounded-3xl p-8 max-w-lg w-full shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+                  <div className="w-12 h-12 rounded-2xl bg-brand-600/20 border border-brand-600/40 flex items-center justify-center text-brand-400 mb-6">
+                      <SpeakerIcon />
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-2">Confirm Voice Tone</h3>
+                  <p className="text-sm text-gray-400 mb-6 leading-relaxed">
+                      Would you like to use your <span className="text-brand-400 font-semibold">Cinematic Grandeur</span> tone for this voice-over, or should I use the tone generated by AI for this specific script?
+                  </p>
+                  
+                  <div className="space-y-3">
+                      <button 
+                        onClick={() => startGenerationFlow(pendingAnalysis, true)}
+                        className="w-full py-4 rounded-2xl bg-brand-600 text-white font-bold hover:bg-brand-500 transition-all flex flex-col items-center gap-0.5"
+                      >
+                          <span>Apply Cinematic Grandeur</span>
+                          <span className="text-[10px] opacity-70 font-normal">"Breathless, magical discovery..."</span>
+                      </button>
+                      <button 
+                        onClick={() => startGenerationFlow(pendingAnalysis, false)}
+                        className="w-full py-3 rounded-2xl bg-gray-800 text-gray-300 font-bold hover:bg-gray-700 transition-all flex flex-col items-center gap-0.5"
+                      >
+                          <span>Use AI Generated Tone</span>
+                          <span className="text-[10px] opacity-70 font-normal">"{pendingAnalysis.voiceInstruction}"</span>
+                      </button>
+                      <button 
+                        onClick={() => setShowTonePrompt(false)}
+                        className="w-full py-2 text-xs text-gray-500 font-medium hover:text-gray-400 transition-colors"
+                      >
+                          Cancel Generation
+                      </button>
+                  </div>
+              </div>
+          </div>
       )}
 
       <header className="border-b border-gray-800 bg-gray-900/50 h-16 flex items-center justify-between px-6 shrink-0">
@@ -200,11 +245,11 @@ export default function App() {
               {analysis && (
                 <div className="bg-brand-900/10 border border-brand-500/30 rounded-xl p-3 flex flex-col gap-2">
                    <div className="flex items-center justify-between">
-                     <span className="text-[10px] font-bold uppercase text-brand-400">Tone Analysis</span>
+                     <span className="text-[10px] font-bold uppercase text-brand-400">Project Analysis</span>
                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold text-white ${MOOD_COLORS[analysis.mood]}`}>{analysis.mood}</span>
                    </div>
                    <div className="text-[11px] text-brand-200 italic line-clamp-2">
-                     "{analysis.voiceInstruction}"
+                     Applied Instruction: "{analysis.voiceInstruction === CUSTOM_CINEMATIC_TONE ? "Global Cinematic Grandeur" : analysis.voiceInstruction}"
                    </div>
                 </div>
               )}
