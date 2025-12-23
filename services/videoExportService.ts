@@ -50,7 +50,7 @@ export const exportVideo = async (
 
       const recorder = new MediaRecorder(combinedStream, {
         mimeType: 'video/webm;codecs=vp9',
-        videoBitsPerSecond: 18000000 // 18 Mbps for ultra-high quality
+        videoBitsPerSecond: 18000000 
       });
 
       const chunks: Blob[] = [];
@@ -65,17 +65,6 @@ export const exportVideo = async (
       };
 
       const captionChunks = getCaptionChunks(wordTimings, aspectRatio);
-
-      // --- FX STATE ---
-      // Particle system for "Magical Dust"
-      const particles = Array.from({ length: 40 }, () => ({
-        x: Math.random() * width,
-        y: Math.random() * height,
-        size: Math.random() * 4 + 1,
-        speedX: (Math.random() - 0.5) * 2,
-        speedY: (Math.random() - 0.5) * 2,
-        opacity: Math.random()
-      }));
 
       recorder.start();
       source.start();
@@ -102,12 +91,11 @@ export const exportVideo = async (
             loadedImages.length - 1
         );
         
-        // Progress within the current image segment for Ken Burns effect
         const segmentProgress = (elapsedTime % segmentDuration) / segmentDuration;
 
         if (loadedImages[imgIndex]) {
             const img = loadedImages[imgIndex];
-            // Ken Burns: Slow zoom in
+            // Pure Ken Burns Zoom
             const zoomScale = 1.0 + (segmentProgress * 0.1); 
             const baseScale = Math.max(width / img.width, height / img.height);
             const scale = baseScale * zoomScale;
@@ -115,51 +103,8 @@ export const exportVideo = async (
             const x = (width / 2) - (img.width / 2) * scale;
             const y = (height / 2) - (img.height / 2) * scale;
             
-            // Draw Main Image
             ctx.clearRect(0, 0, width, height);
             ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
-            
-            // Atmospheric Bloom Overlay (Subtle Glow)
-            ctx.globalCompositeOperation = 'screen';
-            ctx.fillStyle = `rgba(99, 102, 241, ${0.1 + Math.sin(elapsedTime * 2) * 0.05})`; // Pulse brand color
-            ctx.fillRect(0, 0, width, height);
-            ctx.globalCompositeOperation = 'source-over';
-
-            // Vignette
-            const grad = ctx.createRadialGradient(width/2, height/2, width*0.2, width/2, height/2, width*0.8);
-            grad.addColorStop(0, 'rgba(0,0,0,0)');
-            grad.addColorStop(1, 'rgba(0,0,0,0.6)');
-            ctx.fillStyle = grad;
-            ctx.fillRect(0, 0, width, height);
-        }
-
-        // --- DRAW PARTICLES (Magical Dust Effect) ---
-        ctx.fillStyle = '#ffffff';
-        particles.forEach(p => {
-          p.x += p.speedX;
-          p.y += p.speedY;
-          if (p.x < 0) p.x = width;
-          if (p.x > width) p.x = 0;
-          if (p.y < 0) p.y = height;
-          if (p.y > height) p.y = 0;
-          
-          ctx.globalAlpha = p.opacity * (0.5 + Math.sin(elapsedTime + p.x) * 0.5);
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-          ctx.fill();
-        });
-        ctx.globalAlpha = 1.0;
-
-        // --- DRAW LIGHT LEAK (Random cinematic glow) ---
-        const leakOpacity = Math.max(0, Math.sin(elapsedTime * 0.5) * 0.2);
-        if (leakOpacity > 0) {
-            ctx.globalCompositeOperation = 'screen';
-            const leakGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, width);
-            leakGrad.addColorStop(0, `rgba(251, 191, 36, ${leakOpacity})`);
-            leakGrad.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.fillStyle = leakGrad;
-            ctx.fillRect(0, 0, width, height);
-            ctx.globalCompositeOperation = 'source-over';
         }
 
         if (showSubtitles) {
@@ -210,21 +155,14 @@ export const exportVideo = async (
                    line.words.forEach(w => {
                        const isActive = elapsedTime >= w.start && elapsedTime < w.end;
                        
-                       // Cinematic Shadow
-                       ctx.shadowColor = 'rgba(0,0,0,1)';
-                       ctx.shadowBlur = 10;
-                       ctx.fillStyle = 'rgba(0,0,0,0.8)';
-                       ctx.fillText(w.text, currentX + 4, currentY + 4);
+                       // Solid black outline for maximum legibility
+                       ctx.lineWidth = 10;
+                       ctx.strokeStyle = 'black';
+                       ctx.strokeText(w.text, currentX, currentY);
                        
                        // Main Text
-                       ctx.shadowBlur = 0;
                        ctx.fillStyle = isActive ? '#fbbf24' : '#ffffff';
                        ctx.fillText(w.text, currentX, currentY);
-
-                       // Active Underline
-                       if (isActive) {
-                           ctx.fillRect(currentX, currentY + lineHeight - 10, ctx.measureText(w.text).width, 8);
-                       }
 
                        currentX += w.width;
                    });

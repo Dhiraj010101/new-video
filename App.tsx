@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { VoiceName, Mood, ScriptAnalysis, MusicPreset, ViralAnalysis, ChatMessage } from './types';
-import { VOICE_OPTIONS, MOOD_COLORS, LANGUAGE_OPTIONS, MUSIC_PRESET_OPTIONS, PlayIcon, PauseIcon, MagicIcon, SpeakerIcon, DownloadIcon } from './constants';
+import { VOICE_OPTIONS, MOOD_COLORS, PlayIcon, PauseIcon, MagicIcon, SpeakerIcon, DownloadIcon } from './constants';
 import { analyzeScript, generateSpeech, generateImage, translateScript, performAssistantQuery, transcribeGeneratedAudio } from './services/geminiService';
 import { audioService } from './services/audioService';
 import { exportVideo } from './services/videoExportService';
@@ -15,7 +16,6 @@ export default function App() {
   const [videoFormat, setVideoFormat] = useState<VideoFormat>('9:16');
   const [selectedVoice, setSelectedVoice] = useState<VoiceName>(VoiceName.Puck);
   const [targetLanguage, setTargetLanguage] = useState<string>('en');
-  const [backgroundMode, setBackgroundMode] = useState<BackgroundMode>('Auto');
   const [visualStyle, setVisualStyle] = useState<string>("");
   
   const [chatMode, setChatMode] = useState<'chat' | 'search'>('chat');
@@ -40,7 +40,6 @@ export default function App() {
   const [wordTimings, setWordTimings] = useState<WordTiming[]>([]); 
   
   const [voiceVol, setVoiceVol] = useState(1.0);
-  const [musicVol, setMusicVol] = useState(0.2);
   const [voiceSpeed, setVoiceSpeed] = useState(1.0);
   const [reelDuration, setReelDuration] = useState<number>(0);
   const [startOffset, setStartOffset] = useState(0);
@@ -103,7 +102,6 @@ export default function App() {
         setIsAnalyzing(false);
 
         setIsGenerating(true);
-        // Step 1: Voice Generation with EMOTIONAL INSTRUCTIONS from analysis
         const audioBase64 = await generateSpeech(
           scriptToProcess, 
           selectedVoice, 
@@ -111,14 +109,12 @@ export default function App() {
         );
         const buffer = await audioService.decodeAudio(audioBase64);
         
-        // Step 2: Voice Analysis (Subtitles)
         setIsTranscribing(true);
         const preciseTimings = await transcribeGeneratedAudio(audioBase64);
         setIsTranscribing(false);
 
         const finalTimings = preciseTimings || calculateWordTimings(scriptToProcess, buffer.duration);
 
-        // Step 3: Visuals
         const imagePromises = analysisResult.visualPrompts.map(p => generateImage(p, videoFormat));
         const images = await Promise.all(imagePromises);
         
@@ -128,7 +124,7 @@ export default function App() {
         setWordTimings(finalTimings);
 
       } catch (err: any) {
-         console.warn("Generation encountered a non-critical error, continuing with fallback resources.");
+         console.warn("Generation encountered an error.", err);
       } finally {
         setIsAnalyzing(false);
         setIsGenerating(false);
@@ -138,12 +134,6 @@ export default function App() {
     })();
   };
 
-  const getActiveMood = useCallback(() => {
-    if (backgroundMode === 'Custom') return 'Custom';
-    if (backgroundMode !== 'Auto') return backgroundMode;
-    return analysis?.mood || Mood.Neutral;
-  }, [backgroundMode, analysis]);
-
   const togglePlay = useCallback(() => {
     if (!audioBuffer) return;
     if (isPlaying) {
@@ -151,25 +141,21 @@ export default function App() {
       setIsPlaying(false);
     } else {
       setIsPlaying(true);
-      const mood = getActiveMood();
-      if (mood !== 'Custom') {
-        audioService.playAtmosphere(mood as Mood | MusicPreset, reelDuration, musicVol, analysis?.suggestedTempo);
-      }
       audioService.setVoiceSpeed(voiceSpeed);
       audioService.playVoice(audioBuffer, voiceVol, () => setIsPlaying(false), startOffset);
     }
-  }, [audioBuffer, isPlaying, getActiveMood, reelDuration, musicVol, analysis, voiceVol, voiceSpeed, startOffset]);
+  }, [audioBuffer, isPlaying, reelDuration, voiceVol, voiceSpeed, startOffset]);
 
   const handleDownloadVideo = async () => {
-    if (!audioBuffer || generatedImages.length === 0) return;
+    if (!audioBuffer || generatedImages.length === 0 || !analysis) return;
     setIsRenderingVideo(true);
     setRenderProgress(0);
     try {
-        const mood = getActiveMood();
-        const mixedAudio = await audioService.getMixBuffer(audioBuffer, mood as any, reelDuration, voiceVol, musicVol, 1.0, null, voiceSpeed);
+        const mixedAudio = await audioService.getMixBuffer(audioBuffer, analysis.mood, reelDuration, voiceVol, 0, 1.0, null, voiceSpeed);
+        // Fix: Removed the 8th argument 'analysis' from exportVideo call to match the function signature (expected 6-7 parameters).
         const blob = await exportVideo(generatedImages, mixedAudio, wordTimings, videoFormat, reelDuration, p => setRenderProgress(Math.round(p)), showSubtitles);
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = `VoxScript_Studio_Export.webm`; a.click();
+        const a = document.createElement('a'); a.href = url; a.download = `VoxScript_Clean_Export.webm`; a.click();
     } catch (e) {
         console.error("Video export failed", e);
     } finally {
@@ -182,7 +168,7 @@ export default function App() {
       {isRenderingVideo && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center">
             <div className="w-16 h-16 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mb-6"></div>
-            <h2 className="text-2xl font-bold text-white mb-2">Finalizing Cinematic Export...</h2>
+            <h2 className="text-2xl font-bold text-white mb-2">Exporting Clean Video...</h2>
             <div className="w-full max-w-md bg-gray-800 rounded-full h-4 overflow-hidden"><div className="h-full bg-brand-500 transition-all" style={{ width: `${renderProgress}%` }} /></div>
             <span className="mt-2 text-brand-400">{renderProgress}% Complete</span>
         </div>
@@ -191,7 +177,7 @@ export default function App() {
       <header className="border-b border-gray-800 bg-gray-900/50 h-16 flex items-center justify-between px-6 shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center text-white"><SpeakerIcon /></div>
-          <h1 className="text-lg font-bold">VoxScript <span className="text-brand-500">RESILIENT</span></h1>
+          <h1 className="text-lg font-bold">VoxScript <span className="text-brand-500">CLEAN</span></h1>
         </div>
         <button onClick={handleApiKeyManagement} className="text-[10px] bg-brand-600/20 hover:bg-brand-600/30 text-brand-400 px-3 py-1.5 rounded-lg border border-brand-500/30 font-bold uppercase tracking-wider transition-all">Setup Key</button>
       </header>
@@ -214,7 +200,7 @@ export default function App() {
               {analysis && (
                 <div className="bg-brand-900/10 border border-brand-500/30 rounded-xl p-3 flex flex-col gap-2">
                    <div className="flex items-center justify-between">
-                     <span className="text-[10px] font-bold uppercase text-brand-400">Emotion Detected</span>
+                     <span className="text-[10px] font-bold uppercase text-brand-400">Tone Analysis</span>
                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold text-white ${MOOD_COLORS[analysis.mood]}`}>{analysis.mood}</span>
                    </div>
                    <div className="text-[11px] text-brand-200 italic line-clamp-2">
@@ -226,14 +212,14 @@ export default function App() {
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
                  <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-bold text-gray-500 uppercase">Visual Theme</label>
-                    <input className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:ring-1 focus:ring-brand-500" value={visualStyle} onChange={(e) => setVisualStyle(e.target.value)} placeholder="Cinematic, Magical Anime, Divine..." />
+                    <input className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:ring-1 focus:ring-brand-500" value={visualStyle} onChange={(e) => setVisualStyle(e.target.value)} placeholder="e.g. Minimalist, Realistic, High Fidelity..." />
                  </div>
                  <div className="grid grid-cols-2 gap-4">
                     <select value={selectedVoice} onChange={(e) => setSelectedVoice(e.target.value as VoiceName)} className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-3 text-sm outline-none">
                       {VOICE_OPTIONS.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}
                     </select>
                     <button onClick={handleAnalyzeAndGenerate} disabled={isAnalyzing || isGenerating || isTranscribing} className="rounded-xl font-bold bg-brand-600 text-white hover:bg-brand-500 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
-                        {isAnalyzing ? 'Analyzing...' : isGenerating ? (isTranscribing ? 'Syncing...' : 'Creating...') : <><MagicIcon /> Generate Video</>}
+                        {isAnalyzing ? 'Analyzing...' : isGenerating ? 'Creating...' : <><MagicIcon /> Generate Video</>}
                     </button>
                  </div>
               </div>
@@ -241,7 +227,7 @@ export default function App() {
 
             <div className="flex flex-col h-full bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden shadow-2xl">
               <div className="p-4 border-b border-gray-800 bg-black/20 flex items-center justify-between">
-                <h2 className="text-xs font-bold uppercase tracking-widest text-brand-400">Creative Assistant</h2>
+                <h2 className="text-xs font-bold uppercase tracking-widest text-brand-400">Assistant</h2>
                 <div className="flex bg-black/40 p-1 rounded-lg border border-gray-700">
                   <button onClick={() => setChatMode('chat')} className={`px-2 py-1 text-[9px] rounded-md font-bold transition-all ${chatMode === 'chat' ? 'bg-brand-600 text-white' : 'text-gray-500'}`}>CHAT</button>
                   <button onClick={() => setChatMode('search')} className={`px-2 py-1 text-[9px] rounded-md font-bold transition-all ${chatMode === 'search' ? 'bg-brand-600 text-white' : 'text-gray-500'}`}>SEARCH</button>
@@ -251,16 +237,13 @@ export default function App() {
               <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
                 {chatMessages.length === 0 && (
                   <div className="h-full flex flex-col items-center justify-center opacity-30 text-center px-6">
-                    <p className="text-sm">Improve your script or search for facts.</p>
+                    <p className="text-sm">Refine your script or get facts via search.</p>
                   </div>
                 )}
                 {chatMessages.map((msg, idx) => (
                   <div key={idx} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                     <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${msg.role === 'user' ? 'bg-brand-600 text-white rounded-tr-none' : 'bg-gray-800 text-gray-200 rounded-tl-none border border-gray-700'}`}>
                       {msg.text}
-                      {msg.suggestedActions && msg.suggestedActions.map((action, ai) => (
-                        <button key={ai} onClick={() => handleApplyAction(action.type as any, action.value)} className="mt-2 w-full py-1.5 rounded-lg bg-brand-500/10 border border-brand-500/30 text-[10px] font-bold text-brand-400 hover:bg-brand-500/20 transition-all uppercase tracking-widest">Apply {action.label}</button>
-                      ))}
                     </div>
                   </div>
                 ))}
@@ -269,7 +252,7 @@ export default function App() {
               </div>
 
               <form onSubmit={handleChatSubmit} className="p-4 bg-black/20 border-t border-gray-800 flex gap-2">
-                <input type="text" value={currentChatInput} onChange={(e) => setCurrentChatInput(e.target.value)} placeholder="Ask anything..." className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-sm outline-none" />
+                <input type="text" value={currentChatInput} onChange={(e) => setCurrentChatInput(e.target.value)} placeholder="Ask assistant..." className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-sm outline-none" />
                 <button type="submit" className="p-2 rounded-xl bg-brand-600 text-white hover:bg-brand-500 transition-all"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg></button>
               </form>
             </div>
@@ -288,7 +271,7 @@ export default function App() {
 
                 <div className="w-full max-w-[340px] flex flex-col gap-3">
                     <button onClick={togglePlay} disabled={!audioBuffer} className={`w-full py-4 rounded-2xl flex items-center justify-center gap-3 font-bold transition-all ${isPlaying ? 'bg-gray-800 text-white border border-gray-700' : 'bg-white text-black'}`}>
-                        {isPlaying ? <><PauseIcon /> Pause</> : <><PlayIcon /> Preview</>}
+                        {isPlaying ? <><PauseIcon /> Stop</> : <><PlayIcon /> Preview Voice</>}
                     </button>
                     
                     <div className="bg-gray-900 border border-gray-800 rounded-xl p-3 flex items-center justify-between">
